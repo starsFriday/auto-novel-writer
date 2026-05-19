@@ -1,0 +1,22 @@
+{
+  "run": {
+    "mode": "fresh"
+  },
+  "rule_extraction": {
+    "max_novels": 4,
+    "final_rulebook_max_cards": 4
+  },
+  "planning": {
+    "target_chapters": 2,
+    "target_chars_per_chapter": 1600
+  },
+  "paths": {
+    "work_dir": "data-smoke",
+    "manifest": "data-smoke/interim/corpus_manifest.jsonl",
+    "samples": "data-smoke/interim/corpus_samples.jsonl",
+    "rule_cards": "data-smoke/interim/rule_cards.jsonl",
+    "partial_rulebooks": "data-smoke/interim/partial_rulebooks.jsonl",
+    "rulebook": "data-smoke/final/novel_rulebook.json",
+    "projects_dir": "data-smoke/projects"
+  }
+}
