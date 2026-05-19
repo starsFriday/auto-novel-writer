@@ -9,7 +9,7 @@
   },
   "corpus": {
     "source_dirs": [
-      "/novalv1",
+      "novalv1",
       "novalv2"
     ],
     "include_globs": ["*.txt"],
