@@ -9,8 +9,8 @@
   },
   "corpus": {
     "source_dirs": [
-      "/root/tangfan/code/ComfyUI/novalv1",
-      "/root/tangfan/code/ComfyUI/novalv2"
+      "/novalv1",
+      "novalv2"
     ],
     "include_globs": ["*.txt"],
     "exclude_suffixes": [".crdownload"],
