@@ -472,6 +472,170 @@ def normalize_plan(plan: dict[str, Any], config: dict[str, Any]) -> dict[str, An
     return plan
 
 
+def extend_novel_plan(config: dict[str, Any], project_id: str, target_chapters: int) -> dict[str, Any]:
+    paths = project_paths(config, project_id)
+    plan = read_json(paths["plan"], default={}) or {}
+    if not plan:
+        raise ValueError(f"Plan not found for project_id={project_id}: {paths['plan']}")
+    rulebook = read_json(resolve_project_path(config["paths"]["rulebook"]), default={}) or {}
+    if not rulebook:
+        raise ValueError("Rulebook not found. Run --stage rules first.")
+
+    chapter_plan = [item for item in plan.get("chapter_plan", []) if isinstance(item, dict)]
+    current_chapters = len(chapter_plan)
+    if target_chapters <= current_chapters:
+        return {
+            "project_id": project_id,
+            "extended": False,
+            "current_chapters": current_chapters,
+            "target_chapters": target_chapters,
+            "message": "target_chapters is not greater than current chapter_plan length",
+        }
+
+    state = read_json(paths["state"], default={}) or {}
+    chapter_summaries = collect_chapter_summaries(config, project_id)
+    prompt = render_template(
+        load_prompt("extend_outline_zh.md"),
+        {
+            "target_chapters": target_chapters,
+            "current_chapters": current_chapters,
+            "written_chapters": len(chapter_summaries),
+            "next_chapter": current_chapters + 1,
+            "plan": json.dumps(plan, ensure_ascii=False, indent=2)[:24000],
+            "rulebook": json.dumps(rulebook, ensure_ascii=False, indent=2)[:16000],
+            "writing_state": json.dumps(state, ensure_ascii=False, indent=2)[:12000],
+            "chapter_summaries": json.dumps(chapter_summaries, ensure_ascii=False, indent=2)[:18000],
+        },
+    )
+    client = make_llm_client(config)
+    result = client.complete_json(
+        [
+            {"role": "system", "content": config["generation"]["system_prompt"]},
+            {"role": "user", "content": prompt},
+        ]
+    )
+    if not isinstance(result, dict):
+        raise ValueError("extend outline output is not JSON object")
+
+    new_chapters = normalize_extended_chapters(
+        result.get("new_chapters") or result.get("chapter_plan") or [],
+        start_chapter=current_chapters + 1,
+        target_chapters=target_chapters,
+    )
+    if not new_chapters:
+        raise ValueError("extend outline returned no usable new_chapters")
+
+    existing_numbers = {int(item.get("chapter_no", 0)) for item in chapter_plan}
+    appended = []
+    for item in new_chapters:
+        chapter_no = int(item.get("chapter_no", 0))
+        if chapter_no in existing_numbers or chapter_no > target_chapters:
+            continue
+        appended.append(item)
+        existing_numbers.add(chapter_no)
+
+    if len(chapter_plan) + len(appended) < target_chapters:
+        for chapter_no in range(len(chapter_plan) + len(appended) + 1, target_chapters + 1):
+            appended.append(
+                {
+                    "chapter_no": chapter_no,
+                    "title": f"第{chapter_no}章",
+                    "goal": "承接前文继续推进主线",
+                    "conflict": "新压力与未解决伏笔正面碰撞",
+                    "required_scenes": [],
+                    "turning_point": "局面发生新的变化",
+                    "cliffhanger": "留下下一章必须解决的问题",
+                    "continuity_notes": [],
+                }
+            )
+
+    backup_path = paths["plan"].with_name(f"novel_plan.before_extend_{time.strftime('%Y%m%d_%H%M%S')}.json")
+    write_json(backup_path, plan)
+
+    plan["chapter_plan"] = sorted(chapter_plan + appended, key=lambda item: int(item.get("chapter_no", 0)))[:target_chapters]
+    updates = result.get("plan_updates")
+    if isinstance(updates, dict):
+        plan.setdefault("extension_updates", [])
+        plan["extension_updates"].append(
+            {
+                "from_chapter": current_chapters + 1,
+                "to_chapter": target_chapters,
+                "updates": updates,
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            }
+        )
+        if updates.get("foreshadowing"):
+            existing_foreshadowing = plan.get("foreshadowing", [])
+            if not isinstance(existing_foreshadowing, list):
+                existing_foreshadowing = [str(existing_foreshadowing)]
+            for item in updates.get("foreshadowing", []):
+                if item not in existing_foreshadowing:
+                    existing_foreshadowing.append(item)
+            plan["foreshadowing"] = existing_foreshadowing
+    plan["target_chapters"] = target_chapters
+    plan["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    write_json(paths["plan"], plan)
+
+    return {
+        "project_id": project_id,
+        "extended": True,
+        "previous_chapters": current_chapters,
+        "target_chapters": target_chapters,
+        "added_chapters": len(appended),
+        "plan_path": str(paths["plan"]),
+        "backup_path": str(backup_path),
+    }
+
+
+def normalize_extended_chapters(chapters: Any, start_chapter: int, target_chapters: int) -> list[dict[str, Any]]:
+    if not isinstance(chapters, list):
+        return []
+    normalized = []
+    next_no = start_chapter
+    for raw in chapters:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        try:
+            chapter_no = int(item.get("chapter_no") or next_no)
+        except (TypeError, ValueError):
+            chapter_no = next_no
+        if chapter_no < start_chapter:
+            chapter_no = next_no
+        if chapter_no > target_chapters:
+            continue
+        item["chapter_no"] = chapter_no
+        item.setdefault("title", f"第{chapter_no}章")
+        item.setdefault("goal", "推进主线并制造新的压力")
+        item.setdefault("conflict", "人物欲望和外部阻力正面相撞")
+        item.setdefault("required_scenes", [])
+        item.setdefault("turning_point", "章节末出现改变局面的信息或行动")
+        item.setdefault("cliffhanger", "留下下一章必须解决的问题")
+        item.setdefault("continuity_notes", [])
+        normalized.append(item)
+        next_no = chapter_no + 1
+    return sorted(normalized, key=lambda item: int(item.get("chapter_no", 0)))
+
+
+def collect_chapter_summaries(config: dict[str, Any], project_id: str) -> list[dict[str, Any]]:
+    paths = project_paths(config, project_id)
+    rows = []
+    for path in sorted(paths["chapters_dir"].glob("chapter_*.json")):
+        item = read_json(path, default={}) or {}
+        if not item:
+            continue
+        rows.append(
+            {
+                "chapter_no": item.get("chapter_no"),
+                "title": item.get("title"),
+                "summary": item.get("chapter_summary", ""),
+                "open_threads": item.get("open_threads", []),
+                "continuity_updates": item.get("continuity_updates", []),
+            }
+        )
+    return rows
+
+
 def write_novel(
     config: dict[str, Any],
     project_id: str,
@@ -840,6 +1004,10 @@ def run_stage(
             raise ValueError("--opening or --opening-file is required for --stage plan")
         planned = plan_novel(config, opening, project_id=project_id)
         return {"project_id": planned["project_id"], "plan_path": planned["plan_path"]}
+    if normalized_stage in {"extend-plan", "extend-outline"}:
+        if not project_id:
+            raise ValueError("--project-id is required for --stage extend-plan")
+        return extend_novel_plan(config, project_id, target_chapters=int(config["planning"]["target_chapters"]))
     if normalized_stage == "write":
         if not project_id:
             if opening:

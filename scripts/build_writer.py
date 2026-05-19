@@ -20,7 +20,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-mode", choices=["resume", "fresh"], default="", help="Override run.mode.")
     parser.add_argument(
         "--stage",
-        choices=["index", "extract-rules", "synthesize", "rules", "plan", "write", "assemble", "all"],
+        choices=["index", "extract-rules", "synthesize", "rules", "plan", "extend-plan", "extend-outline", "write", "assemble", "all"],
         default="all",
         help="Pipeline stage.",
     )

@@ -152,7 +152,35 @@ write
 
 它不会重新规划，也不会重新抽规则。
 
-## 3. 如果缺少规则书
+## 3. 扩展大纲
+
+如果当前 `novel_plan.json` 只有 20 章，但你想继续写第 21 章以后，先扩展大纲：
+
+```bash
+PROJECT_ID="Urban-cultivation-in-ancient-times" TARGET_CHAPTERS=40 ./extend_outline.sh
+```
+
+这个脚本会读取：
+
+```text
+data/projects/<PROJECT_ID>/novel_plan.json
+data/projects/<PROJECT_ID>/writing_state.json
+data/projects/<PROJECT_ID>/chapters/*.json
+```
+
+然后把 `chapter_plan` 扩展到 `TARGET_CHAPTERS`。它会自动备份旧规划，备份文件类似：
+
+```text
+data/projects/<PROJECT_ID>/novel_plan.before_extend_20260519_140000.json
+```
+
+扩展完成后，再续写：
+
+```bash
+PROJECT_ID="Urban-cultivation-in-ancient-times" START_CHAPTER=21 CHAPTER_COUNT=10 ./continue_writing.sh
+```
+
+## 4. 如果缺少规则书
 
 如果运行新书脚本时报错：
 
@@ -168,7 +196,7 @@ write
 
 这一步会读取 `novalv1/novalv2` 抽取写作规则，耗时较长。跑完后，后续写新书和续写都不需要再跑。
 
-## 4. 模型配置
+## 5. 模型配置
 
 模型配置在：
 
@@ -192,7 +220,7 @@ OPENAI_API_KEY="你的 key"
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-## 5. 注意事项
+## 6. 注意事项
 
 写正文阶段是顺序执行，所以你会看到：
 
